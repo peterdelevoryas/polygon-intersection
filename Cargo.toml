@@ -1,0 +1,9 @@
+[package]
+name = "render1"
+version = "0.1.0"
+authors = ["Peter Delevoryas <peter.delevoryas@colorado.edu>"]
+
+[dependencies]
+gl = "0.6"
+glutin = "0.8.1"
+cgmath = "0.14.1"
