@@ -109,7 +109,11 @@ impl Interval {
         let y = rhs.right;
 
         if a <= b && b <= x && x <= y {
-            IntervalIntersection::None
+            if b == x {
+                IntervalIntersection::Point(b.value)
+            } else {
+                IntervalIntersection::None
+            }
         } else if a <= x && x <= b && b <= y {
             point_or_interval_intersection(x, b)
         } else if a <= x && x <= y && y <= b {
@@ -119,7 +123,11 @@ impl Interval {
         } else if x <= a && a <= y && y <= b {
             point_or_interval_intersection(a, y)
         } else if x <= y && y <= a && a <= b {
-            point_or_interval_intersection(y, a)
+            if y == a {
+                IntervalIntersection::Point(y.value)
+            } else {
+                IntervalIntersection::None
+            }
         } else {
             unreachable!()
         }
@@ -244,5 +252,5 @@ fn main() {
 
     let mut objects = vec![x_axis, y_axis, segment.object("white"), ray, intersection];
 
-    render1::render1(&objects);
+    //render1::render1(&objects);
 }
