@@ -19,8 +19,8 @@ use std::borrow::Borrow;
 
 #[derive(Debug, Copy, Clone)]
 pub struct AABB {
-    min: Vector2<f32>,
-    max: Vector2<f32>,
+    pub min: Vector2<f32>,
+    pub max: Vector2<f32>,
 }
 
 impl AABB {
@@ -31,6 +31,19 @@ impl AABB {
         let p3 = [self.min.x, self.max.y];
         let vertices = vec![p0, p1, p2, p3, p0];
         Object::outline(vertices, color)
+    }
+
+    pub fn segments(&self) -> Vec<Segment> {
+        let p0: Vector2<f32> = [self.min.x, self.min.y].into();
+        let p1: Vector2<f32> = [self.max.x, self.min.y].into();
+        let p2: Vector2<f32> = [self.max.x, self.max.y].into();
+        let p3: Vector2<f32> = [self.min.x, self.max.y].into();
+        vec![
+            Segment { x0: p0.into(), x: (p1 - p0).into() },
+            Segment { x0: p0.into(), x: (p3 - p0).into() },
+            Segment { x0: p2.into(), x: (p1 - p2).into() },
+            Segment { x0: p2.into(), x: (p3 - p2).into() },
+        ]
     }
 }
 
@@ -67,7 +80,17 @@ impl<T: AsRef<[[f32; 2]]>> From<T> for AABB {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct Segment {
+    pub x0: Vector2<f32>,
+    pub x: Vector2<f32>,
+}
 
+impl Segment {
+    pub fn object(&self, color: &'static str) -> Object<Vec<[f32; 2]>> {
+        Object::segment(vec![self.x0.into(), (self.x0 + self.x).into()], color)
+    }
+}
 
 #[derive(Debug)]
 pub struct Camera {
@@ -343,7 +366,7 @@ impl<T: Clone + Borrow<[[f32; 2]]>> Object<T> {
 
 impl Object<Vec<[f32; 2]>> {
     pub fn point(point: [f32; 2], color: &'static str) -> Object<Vec<[f32; 2]>> {
-        let dx = 0.005;
+        let dx = 0.1;
         let p0 = [point[0] - dx, point[1] - dx];
         let p1 = [point[0] + dx, point[1] - dx];
         let p2 = [point[0] + dx, point[1] + dx];
@@ -476,7 +499,7 @@ pub fn render1(objects: &[Object<Vec<[f32; 2]>>]) {
     let mut camera = Camera::new((center + Vector3::new(0.0, 0.0, eye_z)).to_vec(), center.to_vec(), [0.0, 1.0, 0.0].into());
 
     let mut objects = objects.to_vec();
-    objects.push(aabb.object("red"));
+    //objects.push(aabb.object("red"));
     let objects = &objects;
 
     let (targets, vao, vbo) = unsafe {

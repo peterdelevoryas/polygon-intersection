@@ -3,23 +3,12 @@ extern crate gl;
 extern crate cgmath;
 
 use render1::Object;
+use render1::Segment;
 use cgmath::Matrix4;
 use cgmath::SquareMatrix;
 use cgmath::Vector2;
 use cgmath::Vector3;
 use cgmath::InnerSpace;
-
-#[derive(Debug, Copy, Clone)]
-struct Segment {
-    x0: Vector2<f32>,
-    x: Vector2<f32>,
-}
-
-impl Segment {
-    fn object(&self, color: &'static str) -> Object<Vec<[f32; 2]>> {
-        Object::segment(vec![self.x0.into(), (self.x0 + self.x).into()], color)
-    }
-}
 
 #[derive(Debug, Copy, Clone)]
 struct Ray {
@@ -29,7 +18,7 @@ struct Ray {
 
 impl Ray {
     fn object(&self, color: &'static str) -> Object<Vec<[f32; 2]>> {
-        Object::segment(vec![self.x0.into(), (self.x0 + self.direction * 1_000_000_000.0).into()], color)
+        Object::segment(vec![self.x0.into(), (self.x0 + self.direction.normalize_to(40.0)).into()], color)
     }
 }
 
@@ -46,6 +35,13 @@ impl Intersection {
             Intersection::None => None,
             Intersection::Point(p) => Some(Object::point(p.into(), color)),
             Intersection::Segment(s) => Some(Object::segment(vec![s.x0.into(), (s.x0 + s.x).into()], color)),
+        }
+    }
+
+    fn unwrap_point(&self) -> Vector2<f32> {
+        match *self {
+            Intersection::Point(p) => p,
+            _ => panic!()
         }
     }
 }
@@ -188,11 +184,25 @@ fn ray_segment_intersection(ray: Ray, segment: Segment) -> Intersection {
         }
     } else if a.cross(b) == 0.0 && (b0 - a0).cross(a) != 0.0 {
         Intersection::None
-    } else if a.cross(b) != 0.0 && t_a >= 0.0 && t_b >= 0.0 {
+    } else if a.cross(b) != 0.0 && t_a >= 0.0 && t_b >= 0.0 && t_b <= 1.0 {
         Intersection::Point(a0 + a * t_a)
     } else {
         Intersection::None
     }
+}
+
+fn segments(vertices: &[[f32; 2]]) -> Vec<Segment> {
+    let mut buf = Vec::new();
+    for i in 0..vertices.len() - 1 {
+        if let Some(pair) = vertices.get(i..i + 2) {
+            let p0: Vector2<f32> = pair[0].into();
+            let p1: Vector2<f32> = pair[1].into();
+            buf.push(Segment { x0: p0, x: p1 - p0 });
+        } else {
+            return buf
+        }
+    }
+    buf
 }
 
 macro_rules! points {
@@ -249,10 +259,54 @@ fn main() {
                 x13 y13]
     };
 
+    let aabb_segments = render1::AABB::from(&board_outline).segments();
+
     let top_segment = Object::segment(vec![[5.0, 5.0], [10.0, 7.5]], "green");
-        
+    let (rays, intersections) = {
+        let left = Vector2::new(5.0, 5.0);
+        let right = Vector2::new(10.0, 7.5);
+        let direction = right - left;
+        let normal = Vector2::new(-direction.y, direction.x);
+        let left_normal_ray = Ray {
+            x0: left,
+            direction: normal,
+        };
+        let right_normal_ray = Ray {
+            x0: right,
+            direction: normal,
+        };
+        let rays = vec![left_normal_ray, right_normal_ray];
+        let intersections: Vec<Intersection> = rays.iter().fold(Vec::new(), |mut buf, ray| {
+            for segment in &aabb_segments {
+                match ray_segment_intersection(*ray, *segment) {
+                    Intersection::None => continue,
+                    intersection => {
+                        println!("ray {:?} intersection with segment {:?} = {:?}", ray, segment, intersection);
+                        buf.push(intersection);
+                    }
+                }
+            }
+            buf
+        });
+        (rays, intersections)
+    };
 
-    let objects = &[Object::outline(board_outline, "white"), top_segment];
+    let mut area = Object::outline(vec![
+        rays[0].x0.into(),
+        rays[1].x0.into(),
+        intersections[1].unwrap_point().into(),
+        [0.0, 22.0],
+        intersections[0].unwrap_point().into(),
+    ], "purple");
+    area.primitive = gl::TRIANGLE_FAN;
 
-    render1::render1(objects);
+    let aabb_segments: Vec<Object<_>> = aabb_segments.into_iter().map(|segment| segment.object("black")).collect();
+    let rays = rays.into_iter().map(|r| r.object("green")).collect::<Vec<Object<_>>>();
+    let intersections = intersections.into_iter().map(|i| i.object("pink").unwrap()).collect::<Vec<Object<_>>>();
+    let mut objects = vec![Object::outline(board_outline, "white"), top_segment, area];
+    objects.extend(rays);
+    objects.extend(intersections);
+    objects.extend(aabb_segments);
+
+    render1::render1(objects.as_ref());
 }
