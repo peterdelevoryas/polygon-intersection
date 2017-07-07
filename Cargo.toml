@@ -7,3 +7,4 @@ authors = ["Peter Delevoryas <peter.delevoryas@colorado.edu>"]
 gl = "0.6"
 glutin = "0.8.1"
 cgmath = "0.14.1"
+winit = "0.6.4"
