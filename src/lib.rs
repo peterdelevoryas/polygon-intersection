@@ -15,6 +15,7 @@ use cgmath::Rad;
 use cgmath::Deg;
 use cgmath::Angle;
 use cgmath::SquareMatrix;
+use std::borrow::Borrow;
 
 #[derive(Debug)]
 pub struct Camera {
@@ -225,15 +226,16 @@ pub struct RawObject {
 }
 
 #[derive(Debug)]
-pub struct Object<'a> {
-    vertices: &'a [[f32; 2]],
-    primitive: gl::types::GLenum,
-    color: &'a str,
-    model: Matrix4<f32>,
+pub struct Object<T: Borrow<[[f32; 2]]>> {
+    pub vertices: T,
+    pub primitive: gl::types::GLenum,
+    pub color: &'static str,
+    pub model: Matrix4<f32>,
 }
 
-impl<'a> Object<'a> {
-    pub fn from_raw(raw: &'a RawObject) -> Object<'a> {
+impl<T: Borrow<[[f32; 2]]>> Object<T> {
+    /*
+    pub fn from_raw(raw: &RawObject) -> Object<T> {
         unsafe {
             let vertices = std::slice::from_raw_parts(raw.vertices_ptr, raw.vertices_len);
             let color = std::ffi::CStr::from_ptr(raw.color).to_str().unwrap();
@@ -244,6 +246,42 @@ impl<'a> Object<'a> {
                 color,
                 model: *model,
             }
+        }
+    }
+    */
+
+    pub fn segment(vertices: T, color: &'static str) -> Object<T> {
+        Object {
+            vertices,
+            primitive: gl::LINE_STRIP,
+            color,
+            model: Matrix4::identity(),
+        }
+    }
+
+    pub fn outline(vertices: T, color: &'static str) -> Object<T> {
+        Object {
+            vertices,
+            primitive: gl::LINE_STRIP,
+            color,
+            model: Matrix4::identity(),
+        }
+    }
+}
+
+impl Object<Vec<[f32; 2]>> {
+    pub fn point(point: [f32; 2], color: &'static str) -> Object<Vec<[f32; 2]>> {
+        let dx = 0.005;
+        let p0 = [point[0] - dx, point[1] - dx];
+        let p1 = [point[0] + dx, point[1] - dx];
+        let p2 = [point[0] + dx, point[1] + dx];
+        let p3 = [point[0] - dx, point[1] + dx];
+        let vertices = vec![p0, p1, p2, p3, p0, p2];
+        Object {
+            vertices,
+            primitive: gl::TRIANGLES,
+            color,
+            model: Matrix4::identity()
         }
     }
 }
@@ -265,6 +303,8 @@ pub fn color(color: &str) -> [f32; 4] {
         "green" => [0.0, 1.0, 0.0, 1.0],
         "white" => [1.0, 1.0, 1.0, 1.0],
         "black" => [0.0, 0.0, 0.0, 1.0],
+        "purple" => [0.5, 0.0, 0.5, 1.0],
+        "pink" => [1.0, 0.75, 0.796, 1.0],
         _ => panic!("unknown color: {:?}", color)
     }
 }
@@ -290,23 +330,24 @@ impl VertexBuffer {
         }
     }
 
-    pub fn create_targets<'a>(&mut self, objects: &[Object<'a>]) -> Vec<Target> {
-        let vertices: Vec<[f32; 2]> = objects.iter().fold(Vec::new(), |mut buf, obj| { buf.extend(obj.vertices); buf });
+    pub fn create_targets<T: Borrow<[[f32; 2]]>>(&mut self, objects: &[Object<T>]) -> Vec<Target> {
+        let vertices: Vec<[f32; 2]> = objects.iter().fold(Vec::new(), |mut buf, obj| { buf.extend(obj.vertices.borrow()); buf });
         self.buffer_data(&vertices);
-        objects.iter().fold((0, Vec::new()), |(offset, mut buf), obj| {
+        objects.borrow().iter().fold((0, Vec::new()), |(offset, mut buf), obj| {
             let target = Target {
                 primitive: obj.primitive,
                 color: color(obj.color),
                 buffer_offset: offset,
-                vertex_count: obj.vertices.len(),
+                vertex_count: obj.vertices.borrow().len(),
                 model: obj.model,
             };
             buf.push(target);
-            (offset + obj.vertices.len(), buf)
+            (offset + obj.vertices.borrow().len(), buf)
         }).1
     }
 }
 
+/*
 #[no_mangle]
 pub extern fn render1<'a>(ptr: *const RawObject, len: usize) {
     let raw_objects = unsafe {
@@ -317,7 +358,8 @@ pub extern fn render1<'a>(ptr: *const RawObject, len: usize) {
         Object::from_raw(raw)
     }).collect::<Vec<Object<'a>>>();
     println!("{:?}", objects);
-
+*/
+pub fn render1<T: Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
     let width = 1024;
     let height = 768;
 
