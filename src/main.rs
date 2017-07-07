@@ -10,37 +10,6 @@ use cgmath::Vector3;
 use cgmath::InnerSpace;
 
 #[derive(Debug, Copy, Clone)]
-struct AABB {
-    min: Vector2<f32>,
-    max: Vector2<f32>,
-}
-
-impl AABB {
-    fn object(&self, color: &'static str) -> Object<Vec<[f32; 2]>> {
-        let p0 = [self.min.x, self.min.y];
-        let p1 = [self.max.x, self.min.y];
-        let p2 = [self.max.x, self.max.y];
-        let p3 = [self.min.x, self.max.y];
-        let vertices = vec![p0, p1, p2, p3, p0];
-        Object::outline(vertices, color)
-    }
-
-    fn segments(&self) -> Vec<Segment> {
-        let p0: Vector2<f32> = [self.min.x, self.min.y].into();
-        let p1: Vector2<f32> = [self.max.x, self.min.y].into();
-        let p2: Vector2<f32> = [self.max.x, self.max.y].into();
-        let p3: Vector2<f32> = [self.min.x, self.max.y].into();
-
-        vec![
-            Segment { x0: p0, x: p1 - p0 },
-            Segment { x0: p0, x: p3 - p0 },
-            Segment { x0: p2, x: p1 - p2 },
-            Segment { x0: p2, x: p3 - p2 },
-        ]
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
 struct Segment {
     x0: Vector2<f32>,
     x: Vector2<f32>,
@@ -226,31 +195,61 @@ fn ray_segment_intersection(ray: Ray, segment: Segment) -> Intersection {
     }
 }
 
+macro_rules! points {
+    (values { $($name:ident = $value:expr);+; } points [$($x:ident $y:ident);+]) => ({
+            $(let $name: f32 = $value;)+
+            vec![$([$x, $y]),+]
+    })
+}
+
 fn main() {
-    let x_axis = Object::segment(vec![[-10_000_000.0, 0.0], [10_000_000.0, 0.0]], "white");
-    let y_axis = Object::segment(vec![[0.0, -10_000_000.0], [0.0, 10_000_000.0]], "white");
+    let board_outline = points! {
+        values {
+            x1 = 60.969119;
+            y1 = 0.0000000;
 
-    let segment = Segment {
-        x0: [0.25, 0.25].into(),
-        x: Vector2::new(0.0, 0.0) - Vector2::new(0.25, 0.25)
+            x2 = 60.969119;
+            y2 = 21.999237;
+
+            x3 = 36.000000;
+            y3 = 22.000000;
+
+            x4 = 36.000000;
+            y4 = 14.500000;
+
+            x5 = 24.999877;
+            y5 = 14.500000;
+
+            x6 = 25.000000;
+            y6 = 18.500000;
+
+            x7 =  0.000000;
+            y7 = 18.500000;
+
+            x8 = 0.000000;
+            y8 = 3.500000;
+
+            x9 = 25.000000;
+            y9 = 3.500000;
+
+            x10 = 24.999877;
+            y10 = 7.500111;
+
+            x11 = 36.000000;
+            y11 = 7.500111;
+
+            x12 = 36.000000;
+            y12 = 0.000000;
+
+            x13 = 60.969119;
+            y13 = 0.000000;
+        }
+        points [x1 y1; x2 y2; x3 y3; x4 y4; x5 y5; x6 y6;
+                x7 y7; x8 y8; x9 y9; x10 y10; x11 y11; x12 y12;
+                x13 y13]
     };
 
-    let ray = Ray {
-        x0: [0.25, 0.25].into(),
-        direction: [1.0, 1.0].into(),
-    };
+    let objects = &[Object::outline(board_outline, "white")];
 
-    let normal = Vector3::new(-ray.direction.y, ray.direction.x, 0.0);
-
-    let intersection = ray_segment_intersection(ray, segment).object("pink");
-    println!("{:?}", intersection);
-    let mut intersection = intersection.unwrap();
-    intersection.model = Matrix4::from_translation(normal.normalize_to(0.02));
-
-    let mut ray = ray.object("red");
-    ray.model = Matrix4::from_translation(normal.normalize_to(0.01));
-
-    let mut objects = vec![x_axis, y_axis, segment.object("white"), ray, intersection];
-
-    //render1::render1(&objects);
+    render1::render1(objects);
 }

@@ -17,6 +17,58 @@ use cgmath::Angle;
 use cgmath::SquareMatrix;
 use std::borrow::Borrow;
 
+#[derive(Debug, Copy, Clone)]
+pub struct AABB {
+    min: Vector2<f32>,
+    max: Vector2<f32>,
+}
+
+impl AABB {
+    pub fn object(&self, color: &'static str) -> Object<Vec<[f32; 2]>> {
+        let p0 = [self.min.x, self.min.y];
+        let p1 = [self.max.x, self.min.y];
+        let p2 = [self.max.x, self.max.y];
+        let p3 = [self.min.x, self.max.y];
+        let vertices = vec![p0, p1, p2, p3, p0];
+        Object::outline(vertices, color)
+    }
+}
+
+impl std::ops::BitOr for AABB {
+    type Output = AABB;
+    fn bitor(self, rhs: AABB) -> Self::Output {
+        let min = Vector2::new(self.min.x.min(rhs.min.x), self.min.y.min(rhs.min.y));
+        let max = Vector2::new(self.max.x.max(rhs.max.x), self.max.y.max(rhs.max.y));
+        AABB {
+            min,
+            max,
+        }
+    }
+}
+
+impl<T: AsRef<[[f32; 2]]>> From<T> for AABB {
+    fn from(vertices: T) -> AABB {
+        let vertices = vertices.as_ref();
+        if vertices.is_empty() {
+            panic!("Can't create AABB for zero-length list of vertices");
+        }
+        let mut min = vertices[0];
+        let mut max = vertices[0];
+        for vertex in &vertices[1..] {
+            min[0] = min[0].min(vertex[0]);
+            max[0] = max[0].max(vertex[0]);
+            min[1] = min[1].min(vertex[1]);
+            max[1] = max[1].max(vertex[1]);
+        }
+        AABB {
+            min: min.into(),
+            max: max.into(),
+        }
+    }
+}
+
+
+
 #[derive(Debug)]
 pub struct Camera {
     position: Vector3<f32>,
@@ -56,13 +108,13 @@ use glutin::ElementState;
 use glutin::VirtualKeyCode;
 use winit::ModifiersState;
 
-const CAMERA_SPEED: f32 = 0.05;
+const CAMERA_SPEED: f32 = 0.1;
 const INITIAL_CAMERA_SENSITIVITY: f32 = 0.009;
 
 impl Camera {
     pub fn new<V: Into<Vector3<f32>>>(position: V, look_at: V, up: V) -> Camera {
         let position = position.into();
-        let forward = (look_at.into() - position).normalize();
+        let forward = look_at.into() - position;
         let up = up.into();
         Camera {
             position,
@@ -92,8 +144,9 @@ impl Camera {
         let moving = match code {
             W => &mut self.moving.forward,
             A => &mut self.moving.left,
-            S => &mut self.moving.backward,
             D => &mut self.moving.right,
+            //S => &mut self.moving.backward,
+            S => &mut self.moving.downward,
             Subtract if modifiers.shift && state == Pressed => {
                 self.sensitivity -= 0.01 * INITIAL_CAMERA_SENSITIVITY;
                 println!("decreased sensitivity to {}", self.sensitivity);
@@ -104,6 +157,11 @@ impl Camera {
                 println!("increased sensitivity to {}", self.sensitivity);
                 return
             }
+            Space => &mut self.moving.upward,
+            Up => &mut self.moving.upward,
+            //Left => &mut self.moving.left,
+            //Right => &mut self.moving.right,
+            Down => &mut self.moving.downward,
             _ => return
         };
         if !*moving && state == Pressed {
@@ -145,6 +203,12 @@ impl Camera {
         }
         if self.moving.right {
             self.position += self.xz().cross(Vector3::unit_y()).normalize_to(CAMERA_SPEED);
+        }
+        if self.moving.upward {
+            self.position += Vector3::unit_y() * CAMERA_SPEED;
+        }
+        if self.moving.downward {
+            self.position -= Vector3::unit_y() * CAMERA_SPEED;
         }
     }
 }
@@ -225,15 +289,15 @@ pub struct RawObject {
     model: *const [f32; 16],
 }
 
-#[derive(Debug)]
-pub struct Object<T: Borrow<[[f32; 2]]>> {
+#[derive(Debug, Clone)]
+pub struct Object<T: Clone + Borrow<[[f32; 2]]>> {
     pub vertices: T,
     pub primitive: gl::types::GLenum,
     pub color: &'static str,
     pub model: Matrix4<f32>,
 }
 
-impl<T: Borrow<[[f32; 2]]>> Object<T> {
+impl<T: Clone + Borrow<[[f32; 2]]>> Object<T> {
     /*
     pub fn from_raw(raw: &RawObject) -> Object<T> {
         unsafe {
@@ -330,7 +394,7 @@ impl VertexBuffer {
         }
     }
 
-    pub fn create_targets<T: Borrow<[[f32; 2]]>>(&mut self, objects: &[Object<T>]) -> Vec<Target> {
+    pub fn create_targets<T: Clone + Borrow<[[f32; 2]]>>(&mut self, objects: &[Object<T>]) -> Vec<Target> {
         let vertices: Vec<[f32; 2]> = objects.iter().fold(Vec::new(), |mut buf, obj| { buf.extend(obj.vertices.borrow()); buf });
         self.buffer_data(&vertices);
         objects.borrow().iter().fold((0, Vec::new()), |(offset, mut buf), obj| {
@@ -359,7 +423,8 @@ pub extern fn render1<'a>(ptr: *const RawObject, len: usize) {
     }).collect::<Vec<Object<'a>>>();
     println!("{:?}", objects);
 */
-pub fn render1<T: Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
+//pub fn render1<T: Clone + Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
+pub fn render1(objects: &[Object<Vec<[f32; 2]>>]) {
     let width = 1024;
     let height = 768;
 
@@ -383,7 +448,20 @@ pub fn render1<T: Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
     let program = link_program(&[vs, fs]).unwrap();
 
     let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
-    let mut camera = Camera::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+    let aabb = objects.iter().fold(None, |aabb, obj| {
+        aabb.map(|aabb| {
+            Some(aabb | AABB::from(&obj.vertices))
+        }).unwrap_or(Some(AABB::from(&obj.vertices)))
+    }).unwrap();
+    use cgmath::Point3;
+    let center: Point3<f32> = [aabb.min.x + (aabb.max.x - aabb.min.x) / 2.0, aabb.min.y + (aabb.max.y - aabb.min.y) / 2.0, 0.0].into();
+    let eye_z = 0.5 * (aabb.max.x - aabb.min.x) / f32::to_radians(45.0 * 0.5).tan() / (width as f32 / height as f32);
+    println!("{:?}", eye_z);
+    let mut camera = Camera::new((center + Vector3::new(0.0, 0.0, eye_z)).to_vec(), center.to_vec(), [0.0, 1.0, 0.0].into());
+
+    let mut objects = objects.to_vec();
+    objects.push(aabb.object("red"));
+    let objects = &objects;
 
     let (targets, vao, vbo) = unsafe {
         let mut vao = 0;
@@ -440,7 +518,7 @@ pub fn render1<T: Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
                     camera.handle_keyboard_input(key_state, key_code, modifiers);
                 }
                 MouseMoved(x, y) => {
-                    //camera.handle_mouse_moved(Vector2 { x: x as _, y: y as _ });
+                    camera.handle_mouse_moved(Vector2 { x: x as _, y: y as _ });
                 }
                 MouseLeft => {
                     camera.last_mouse_position = None;
@@ -475,35 +553,4 @@ pub fn render1<T: Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
     }
 
     println!("window closed");
-}
-
-fn main() {
-    let triangle: [[f32; 2]; 4] = [
-        [ 0.0,  0.5],
-        [ 0.5, -0.5],
-        [-0.5, -0.5],
-        [ 0.0,  0.5],
-    ];
-    let triangle = Object {
-        vertices: &triangle[..],
-        primitive: gl::LINE_STRIP,
-        color: "red",
-        model: Matrix4::identity(),
-    };
-
-    let square: [[f32; 2]; 5] = [
-        [-0.5, -0.5],
-        [-0.5,  0.5],
-        [ 0.5,  0.5],
-        [ 0.5, -0.5],
-        [-0.5, -0.5],
-    ];
-    let square = Object {
-        vertices: &square[..],
-        primitive: gl::LINE_STRIP,
-        color: "blue",
-        model: Matrix4::identity(),
-    };
-
-    let objects = &[triangle, square];
 }
