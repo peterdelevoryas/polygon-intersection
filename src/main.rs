@@ -14,6 +14,7 @@ use cgmath::InnerSpace;
 use cgmath::Rad;
 use cgmath::Deg;
 use cgmath::Angle;
+use cgmath::SquareMatrix;
 
 #[derive(Debug)]
 pub struct Camera {
@@ -214,42 +215,73 @@ fn link_program(shaders: &[gl::types::GLuint]) -> Result<gl::types::GLuint, Stri
 }
 
 #[derive(Debug)]
-pub struct Shape {
+pub struct Object<'a> {
+    vertices: &'a [[f32; 2]],
     primitive: gl::types::GLenum,
-    color: [f32; 4],
-    vao: gl::types::GLuint,
-    vbo: gl::types::GLuint,
+    color: &'a str,
+    model: Matrix4<f32>,
 }
 
-impl Shape {
-    pub fn new(vertices: &[Point2<f32>], primitive: gl::types::GLenum, color: [u8; 4]) -> Shape {
-        let color = [color[0] as f32 / 255.0,
-                     color[1] as f32 / 255.0,
-                     color[2] as f32 / 255.0,
-                     color[3] as f32 / 255.0];
-        let (vao, vbo) = unsafe {
-            let mut vao = 0;
-            let mut vbo = 0;
-            gl::GenVertexArrays(1, &mut vao);
-            gl::BindVertexArray(vao);
-            gl::GenBuffers(1, &mut vbo);
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-            gl::BufferData(
-                gl::ARRAY_BUFFER,
-                (vertices.len() * std::mem::size_of::<gl::types::GLfloat>()) as _,
-                std::mem::transmute(vertices.as_ptr()),
-                gl::STATIC_DRAW);
-            gl::BindVertexArray(0);
-        };
+#[derive(Debug)]
+pub struct Target {
+    pub primitive: gl::types::GLenum,
+    pub color: [f32; 4],
+    pub buffer_offset: usize,
+    pub vertex_count: usize,
+    pub model: Matrix4<f32>,
+}
 
-        Shape {
-            primitive,
-            color,
-        }
+
+pub fn color(color: &str) -> [f32; 4] {
+    match color {
+        "red" => [1.0, 0.0, 0.0, 1.0],
+        "blue" => [0.0, 0.0, 1.0, 1.0],
+        "green" => [0.0, 1.0, 0.0, 1.0],
+        "white" => [1.0, 1.0, 1.0, 1.0],
+        "black" => [0.0, 0.0, 0.0, 1.0],
+        _ => panic!("unknown color: {:?}", color)
     }
 }
 
-fn main() {
+#[derive(Debug)]
+pub struct VertexBuffer {
+    handle: gl::types::GLuint,
+}
+
+impl VertexBuffer {
+    pub fn new(handle: gl::types::GLuint) -> VertexBuffer {
+        VertexBuffer { handle }
+    }
+
+    /// Returns offset in buffer
+    pub fn buffer_data(&mut self, vertices: &[[f32; 2]]) {
+        unsafe {
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                (vertices.len() * 2 * std::mem::size_of::<f32>()) as _,
+                std::mem::transmute(vertices.as_ptr()),
+                gl::STATIC_DRAW);
+        }
+    }
+
+    pub fn create_targets<'a>(&mut self, objects: &[Object<'a>]) -> Vec<Target> {
+        let vertices: Vec<[f32; 2]> = objects.iter().fold(Vec::new(), |mut buf, obj| { buf.extend(obj.vertices); buf });
+        self.buffer_data(&vertices);
+        objects.iter().fold((0, Vec::new()), |(offset, mut buf), obj| {
+            let target = Target {
+                primitive: obj.primitive,
+                color: color(obj.color),
+                buffer_offset: offset,
+                vertex_count: obj.vertices.len(),
+                model: obj.model,
+            };
+            buf.push(target);
+            (offset + obj.vertices.len(), buf)
+        }).1
+    }
+}
+
+fn render(objects: &[Object]) {
     let width = 1024;
     let height = 768;
 
@@ -268,21 +300,14 @@ fn main() {
         gl::load_with(|s| window.get_proc_address(s) as *const _);
     }
 
-
     let vs = compile_shader(include_str!("vertex.glsl"), gl::VERTEX_SHADER).unwrap();
     let fs = compile_shader(include_str!("fragment.glsl"), gl::FRAGMENT_SHADER).unwrap();
     let program = link_program(&[vs, fs]).unwrap();
 
-    let triangle_point_list: [gl::types::GLfloat; 6] = [0.0, 0.5, 0.5, -0.5, -0.5, -0.5];
-    let square_point_list: [gl::types::GLfloat; 8] = [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5];
     let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
     let mut camera = Camera::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
 
-    let position = gl::GetAttribLocation(program, std::ffi::CString::new("position").unwrap().as_ptr());
-    gl::EnableVertexAttribArray(position as _);
-    gl::VertexAttribPointer(position as _, 2, gl::FLOAT, gl::FALSE as _, 0, std::ptr::null());
-
-    let (vao, vbo) = unsafe {
+    let (targets, vao, vbo) = unsafe {
         let mut vao = 0;
         let mut vbo = 0;
         gl::GenVertexArrays(1, &mut vao);
@@ -290,34 +315,31 @@ fn main() {
 
         gl::GenBuffers(1, &mut vbo);
         gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            (triangle_point_list.len() * std::mem::size_of::<gl::types::GLfloat>()) as _,
-            std::mem::transmute(triangle_point_list.as_ptr()),
-            gl::STATIC_DRAW);
+
+        let mut vertex_buffer = VertexBuffer::new(vbo);
+        let targets = vertex_buffer.create_targets(objects);
+
+        let position = gl::GetAttribLocation(program, std::ffi::CString::new("position").unwrap().as_ptr());
+        gl::EnableVertexAttribArray(position as _);
+        gl::VertexAttribPointer(position as _, 2, gl::FLOAT, gl::FALSE as _, 0, std::ptr::null());
+
         gl::UseProgram(program);
         gl::BindFragDataLocation(program, 0, std::ffi::CString::new("out_color").unwrap().as_ptr());
 
-        (vao, vbo)
+        (targets, vao, vbo)
     };
 
-    let (vao2, vbo2) = unsafe {
-        let mut vao = 0;
-        let mut vbo = 0;
-        gl::GenVertexArrays(1, &mut vao);
-        gl::BindVertexArray(vao);
-
-        gl::GenBuffers(1, &mut vbo);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            (square_point_list.len() * std::mem::size_of::<gl::types::GLfloat>()) as _,
-            std::mem::transmute(square_point_list.as_ptr()),
-            gl::STATIC_DRAW);
-
-        (vao, vbo)
+    let transform_location = unsafe {
+        gl::GetUniformLocation(program, std::ffi::CString::new("transform").unwrap().as_ptr())
     };
 
+    let color_location = unsafe {
+        gl::GetUniformLocation(program, std::ffi::CString::new("color").unwrap().as_ptr())
+    };
+
+    for target in &targets {
+        println!("DrawArrays({}, offset={}, count={})", target.primitive, target.buffer_offset as i32, target.vertex_count as i32);
+    }
 
     use glutin::Event::WindowEvent;
     use glutin::WindowEvent::Closed;
@@ -326,9 +348,6 @@ fn main() {
     use glutin::WindowEvent::MouseLeft;
     use glutin::VirtualKeyCode::Escape;
 
-    let transform_location = unsafe {
-        gl::GetUniformLocation(program, std::ffi::CString::new("transform").unwrap().as_ptr())
-    };
     let mut running = true;
     while running {
         events_loop.poll_events(|event| {
@@ -354,12 +373,15 @@ fn main() {
         camera.move1();
 
         unsafe {
-            let transform = proj * camera.view();
-            gl::UniformMatrix4fv(transform_location, 1, gl::FALSE as _, transform.as_ptr());
-
             gl::ClearColor(0.3, 0.3, 0.3, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::DrawArrays(gl::TRIANGLES, 0, 3);
+
+            for target in &targets {
+                let transform = proj * camera.view() * target.model;
+                gl::UniformMatrix4fv(transform_location, 1, gl::FALSE as _, transform.as_ptr());
+                gl::Uniform4fv(color_location, 1, target.color.as_ptr());
+                gl::DrawArrays(target.primitive, target.buffer_offset as _, target.vertex_count as _);
+            }
 
             window.swap_buffers().unwrap();
         }
@@ -374,4 +396,36 @@ fn main() {
     }
 
     println!("window closed");
+}
+
+fn main() {
+    let triangle: [[f32; 2]; 4] = [
+        [ 0.0,  0.5],
+        [ 0.5, -0.5],
+        [-0.5, -0.5],
+        [ 0.0,  0.5],
+    ];
+    let triangle = Object {
+        vertices: &triangle[..],
+        primitive: gl::LINE_STRIP,
+        color: "red",
+        model: Matrix4::identity(),
+    };
+
+    let square: [[f32; 2]; 5] = [
+        [-0.5, -0.5],
+        [-0.5,  0.5],
+        [ 0.5,  0.5],
+        [ 0.5, -0.5],
+        [-0.5, -0.5],
+    ];
+    let square = Object {
+        vertices: &square[..],
+        primitive: gl::LINE_STRIP,
+        color: "blue",
+        model: Matrix4::identity(),
+    };
+
+    let objects = &[triangle, square];
+    render(objects);
 }
