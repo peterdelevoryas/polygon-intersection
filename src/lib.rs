@@ -416,6 +416,7 @@ pub fn render1<T: Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
     };
 
     for target in &targets {
+        println!("{:?}", target.model);
         println!("DrawArrays({}, offset={}, count={})", target.primitive, target.buffer_offset as i32, target.vertex_count as i32);
     }
 
@@ -439,7 +440,7 @@ pub fn render1<T: Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
                     camera.handle_keyboard_input(key_state, key_code, modifiers);
                 }
                 MouseMoved(x, y) => {
-                    camera.handle_mouse_moved(Vector2 { x: x as _, y: y as _ });
+                    //camera.handle_mouse_moved(Vector2 { x: x as _, y: y as _ });
                 }
                 MouseLeft => {
                     camera.last_mouse_position = None;

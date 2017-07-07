@@ -46,6 +46,12 @@ struct Segment {
     x: Vector2<f32>,
 }
 
+impl Segment {
+    fn object(&self, color: &'static str) -> Object<Vec<[f32; 2]>> {
+        Object::segment(vec![self.x0.into(), (self.x0 + self.x).into()], color)
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 struct Ray {
     x0: Vector2<f32>,
@@ -213,23 +219,30 @@ fn ray_segment_intersection(ray: Ray, segment: Segment) -> Intersection {
 }
 
 fn main() {
-    let aabb = AABB {
-        min: [-0.5, -0.5].into(),
-        max: [1.0, 1.0].into(),
+    let x_axis = Object::segment(vec![[-10_000_000.0, 0.0], [10_000_000.0, 0.0]], "white");
+    let y_axis = Object::segment(vec![[0.0, -10_000_000.0], [0.0, 10_000_000.0]], "white");
+
+    let segment = Segment {
+        x0: [0.25, 0.25].into(),
+        x: Vector2::new(0.0, 0.0) - Vector2::new(0.25, 0.25)
     };
 
     let ray = Ray {
         x0: [0.25, 0.25].into(),
-        direction: [-1.0, 0.0].into(),
+        direction: [1.0, 1.0].into(),
     };
 
-    let mut objects = vec![aabb.object("purple"), ray.object("red")];
-    for segment in aabb.segments() {
-        let intersection = ray_segment_intersection(ray, segment);
-        if let Some(object) = intersection.object("pink") {
-            objects.push(object);
-        }
-    }
+    let normal = Vector3::new(-ray.direction.y, ray.direction.x, 0.0);
+
+    let intersection = ray_segment_intersection(ray, segment).object("pink");
+    println!("{:?}", intersection);
+    let mut intersection = intersection.unwrap();
+    intersection.model = Matrix4::from_translation(normal.normalize_to(0.02));
+
+    let mut ray = ray.object("red");
+    ray.model = Matrix4::from_translation(normal.normalize_to(0.01));
+
+    let mut objects = vec![x_axis, y_axis, segment.object("white"), ray, intersection];
 
     render1::render1(&objects);
 }
