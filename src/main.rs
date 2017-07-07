@@ -7,6 +7,7 @@ use cgmath::Vector2;
 use cgmath::Vector3;
 use cgmath::Matrix4;
 use cgmath::Matrix;
+use cgmath::Point2;
 use cgmath::Point3;
 use cgmath::EuclideanSpace;
 use cgmath::InnerSpace;
@@ -212,6 +213,42 @@ fn link_program(shaders: &[gl::types::GLuint]) -> Result<gl::types::GLuint, Stri
     }
 }
 
+#[derive(Debug)]
+pub struct Shape {
+    primitive: gl::types::GLenum,
+    color: [f32; 4],
+    vao: gl::types::GLuint,
+    vbo: gl::types::GLuint,
+}
+
+impl Shape {
+    pub fn new(vertices: &[Point2<f32>], primitive: gl::types::GLenum, color: [u8; 4]) -> Shape {
+        let color = [color[0] as f32 / 255.0,
+                     color[1] as f32 / 255.0,
+                     color[2] as f32 / 255.0,
+                     color[3] as f32 / 255.0];
+        let (vao, vbo) = unsafe {
+            let mut vao = 0;
+            let mut vbo = 0;
+            gl::GenVertexArrays(1, &mut vao);
+            gl::BindVertexArray(vao);
+            gl::GenBuffers(1, &mut vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                (vertices.len() * std::mem::size_of::<gl::types::GLfloat>()) as _,
+                std::mem::transmute(vertices.as_ptr()),
+                gl::STATIC_DRAW);
+            gl::BindVertexArray(0);
+        };
+
+        Shape {
+            primitive,
+            color,
+        }
+    }
+}
+
 fn main() {
     let width = 1024;
     let height = 768;
@@ -237,8 +274,13 @@ fn main() {
     let program = link_program(&[vs, fs]).unwrap();
 
     let triangle_point_list: [gl::types::GLfloat; 6] = [0.0, 0.5, 0.5, -0.5, -0.5, -0.5];
+    let square_point_list: [gl::types::GLfloat; 8] = [-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5];
     let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
     let mut camera = Camera::new([0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+
+    let position = gl::GetAttribLocation(program, std::ffi::CString::new("position").unwrap().as_ptr());
+    gl::EnableVertexAttribArray(position as _);
+    gl::VertexAttribPointer(position as _, 2, gl::FLOAT, gl::FALSE as _, 0, std::ptr::null());
 
     let (vao, vbo) = unsafe {
         let mut vao = 0;
@@ -256,12 +298,26 @@ fn main() {
         gl::UseProgram(program);
         gl::BindFragDataLocation(program, 0, std::ffi::CString::new("out_color").unwrap().as_ptr());
 
-        let position = gl::GetAttribLocation(program, std::ffi::CString::new("position").unwrap().as_ptr());
-        gl::EnableVertexAttribArray(position as _);
-        gl::VertexAttribPointer(position as _, 2, gl::FLOAT, gl::FALSE as _, 0, std::ptr::null());
+        (vao, vbo)
+    };
+
+    let (vao2, vbo2) = unsafe {
+        let mut vao = 0;
+        let mut vbo = 0;
+        gl::GenVertexArrays(1, &mut vao);
+        gl::BindVertexArray(vao);
+
+        gl::GenBuffers(1, &mut vbo);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            (square_point_list.len() * std::mem::size_of::<gl::types::GLfloat>()) as _,
+            std::mem::transmute(square_point_list.as_ptr()),
+            gl::STATIC_DRAW);
 
         (vao, vbo)
     };
+
 
     use glutin::Event::WindowEvent;
     use glutin::WindowEvent::Closed;
