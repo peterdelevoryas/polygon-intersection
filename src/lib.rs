@@ -79,6 +79,7 @@ pub struct Camera {
     yaw: Rad<f32>,
     pitch: Rad<f32>,
     sensitivity: f32,
+    look_around_on: bool,
 }
 
 #[derive(Debug)]
@@ -125,6 +126,7 @@ impl Camera {
             yaw: Rad(0.0),
             pitch: Rad(0.0),
             sensitivity: INITIAL_CAMERA_SENSITIVITY,
+            look_around_on: false,
         }
     }
 
@@ -144,9 +146,13 @@ impl Camera {
         let moving = match code {
             W => &mut self.moving.forward,
             A => &mut self.moving.left,
-            D => &mut self.moving.right,
-            //S => &mut self.moving.backward,
             S => &mut self.moving.downward,
+            D => &mut self.moving.right,
+            C if state == Pressed => {
+                println!("look_around: {}", if self.look_around_on { "on" } else { "off" });
+                self.look_around_on = !self.look_around_on;
+                return;
+            }
             Subtract if modifiers.shift && state == Pressed => {
                 self.sensitivity -= 0.01 * INITIAL_CAMERA_SENSITIVITY;
                 println!("decreased sensitivity to {}", self.sensitivity);
@@ -159,8 +165,8 @@ impl Camera {
             }
             Space => &mut self.moving.upward,
             Up => &mut self.moving.upward,
-            //Left => &mut self.moving.left,
-            //Right => &mut self.moving.right,
+            Left => &mut self.moving.left,
+            Right => &mut self.moving.right,
             Down => &mut self.moving.downward,
             _ => return
         };
@@ -184,11 +190,13 @@ impl Camera {
         } else if self.pitch < Deg(-89.0).into() {
             self.pitch = Deg(-89.0).into();
         }
-        self.forward = Vector3 {
-            x: self.yaw.cos() * self.pitch.cos(),
-            y: self.pitch.sin(),
-            z: self.yaw.sin() * self.pitch.cos(),
-        }.normalize();
+        if self.look_around_on {
+            self.forward = Vector3 {
+                x: self.yaw.cos() * self.pitch.cos(),
+                y: self.pitch.sin(),
+                z: self.yaw.sin() * self.pitch.cos(),
+            }.normalize();
+        }
     }
 
     pub fn move1(&mut self) {
@@ -447,16 +455,24 @@ pub fn render1(objects: &[Object<Vec<[f32; 2]>>]) {
     let fs = compile_shader(include_str!("fragment.glsl"), gl::FRAGMENT_SHADER).unwrap();
     let program = link_program(&[vs, fs]).unwrap();
 
-    let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
     let aabb = objects.iter().fold(None, |aabb, obj| {
         aabb.map(|aabb| {
             Some(aabb | AABB::from(&obj.vertices))
         }).unwrap_or(Some(AABB::from(&obj.vertices)))
     }).unwrap();
+
+    let aabb = {
+        let mut aabb = aabb;
+        aabb.min -= [0.1, 0.1].into();
+        aabb.max += [0.1, 0.1].into();
+        aabb
+    };
+
     use cgmath::Point3;
     let center: Point3<f32> = [aabb.min.x + (aabb.max.x - aabb.min.x) / 2.0, aabb.min.y + (aabb.max.y - aabb.min.y) / 2.0, 0.0].into();
     let eye_z = 0.5 * (aabb.max.x - aabb.min.x) / f32::to_radians(45.0 * 0.5).tan() / (width as f32 / height as f32);
     println!("{:?}", eye_z);
+    let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
     let mut camera = Camera::new((center + Vector3::new(0.0, 0.0, eye_z)).to_vec(), center.to_vec(), [0.0, 1.0, 0.0].into());
 
     let mut objects = objects.to_vec();

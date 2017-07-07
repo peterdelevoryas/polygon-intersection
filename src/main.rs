@@ -249,7 +249,10 @@ fn main() {
                 x13 y13]
     };
 
-    let objects = &[Object::outline(board_outline, "white")];
+    let top_segment = Object::segment(vec![[5.0, 5.0], [10.0, 7.5]], "green");
+        
+
+    let objects = &[Object::outline(board_outline, "white"), top_segment];
 
     render1::render1(objects);
 }
