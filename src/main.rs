@@ -205,6 +205,19 @@ fn segments(vertices: &[[f32; 2]]) -> Vec<Segment> {
     buf
 }
 
+fn between_rays(left: Ray, right: Ray, point: Vector2<f32>) -> bool {
+    debug_assert!(left.direction.normalize() == right.direction.normalize() && (left.x0 - right.x0).dot(left.direction) == 0.0);
+    let side1 = {
+        let point = point - left.x0;
+        point.cross(left.direction).signum()
+    };
+    let side2 = {
+        let point = point - right.x0;
+        point.cross(right.direction).signum()
+    };
+    side1 != side2 && point.dot(left.direction) > 0.0
+}
+
 macro_rules! points {
     (values { $($name:ident = $value:expr);+; } points [$($x:ident $y:ident);+]) => ({
             $(let $name: f32 = $value;)+
@@ -259,7 +272,8 @@ fn main() {
                 x13 y13]
     };
 
-    let aabb_segments = render1::AABB::from(&board_outline).segments();
+    //let aabb_segments = render1::AABB::from(&board_outline).segments();
+    let outline_segments = segments(&board_outline);
 
     let top_segment = Object::segment(vec![[5.0, 5.0], [10.0, 7.5]], "green");
     let (rays, intersections) = {
@@ -277,7 +291,7 @@ fn main() {
         };
         let rays = vec![left_normal_ray, right_normal_ray];
         let intersections: Vec<Intersection> = rays.iter().fold(Vec::new(), |mut buf, ray| {
-            for segment in &aabb_segments {
+            for segment in &outline_segments {
                 match ray_segment_intersection(*ray, *segment) {
                     Intersection::None => continue,
                     intersection => {
@@ -291,22 +305,20 @@ fn main() {
         (rays, intersections)
     };
 
-    let mut area = Object::outline(vec![
-        rays[0].x0.into(),
-        rays[1].x0.into(),
-        intersections[1].unwrap_point().into(),
-        [0.0, 22.0],
-        intersections[0].unwrap_point().into(),
-    ], "purple");
-    area.primitive = gl::TRIANGLE_FAN;
+    let mut dots = vec![];
+    for &point in &board_outline {
+        if between_rays(rays[0], rays[1], point.into()) {
+            dots.push(Object::point(point.into(), "pink"));
+        }
+    }
 
-    let aabb_segments: Vec<Object<_>> = aabb_segments.into_iter().map(|segment| segment.object("black")).collect();
+    //let aabb_segments: Vec<Object<_>> = aabb_segments.into_iter().map(|segment| segment.object("black")).collect();
     let rays = rays.into_iter().map(|r| r.object("green")).collect::<Vec<Object<_>>>();
     let intersections = intersections.into_iter().map(|i| i.object("pink").unwrap()).collect::<Vec<Object<_>>>();
-    let mut objects = vec![Object::outline(board_outline, "white"), top_segment, area];
+    let mut objects = vec![Object::outline(board_outline, "white"), top_segment];
     objects.extend(rays);
     objects.extend(intersections);
-    objects.extend(aabb_segments);
+    objects.extend(dots);
 
     render1::render1(objects.as_ref());
 }

@@ -494,7 +494,7 @@ pub fn render1(objects: &[Object<Vec<[f32; 2]>>]) {
     use cgmath::Point3;
     let center: Point3<f32> = [aabb.min.x + (aabb.max.x - aabb.min.x) / 2.0, aabb.min.y + (aabb.max.y - aabb.min.y) / 2.0, 0.0].into();
     let eye_z = 0.5 * (aabb.max.x - aabb.min.x) / f32::to_radians(45.0 * 0.5).tan() / (width as f32 / height as f32);
-    println!("{:?}", eye_z);
+    //println!("{:?}", eye_z);
     let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
     let mut camera = Camera::new((center + Vector3::new(0.0, 0.0, eye_z)).to_vec(), center.to_vec(), [0.0, 1.0, 0.0].into());
 
@@ -533,8 +533,8 @@ pub fn render1(objects: &[Object<Vec<[f32; 2]>>]) {
     };
 
     for target in &targets {
-        println!("{:?}", target.model);
-        println!("DrawArrays({}, offset={}, count={})", target.primitive, target.buffer_offset as i32, target.vertex_count as i32);
+        //println!("{:?}", target.model);
+        //println!("DrawArrays({}, offset={}, count={})", target.primitive, target.buffer_offset as i32, target.vertex_count as i32);
     }
 
     use glutin::Event::WindowEvent;
