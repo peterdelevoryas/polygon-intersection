@@ -315,7 +315,12 @@ macro_rules! points {
     })
 }
 
+use std::env;
+
 fn main() {
+    let angle: f32 = env::args().nth(1).unwrap().parse().unwrap();
+    let angle = Deg(angle);
+
     let mut objects = vec![];
 
     let board_outline = points! {
@@ -370,7 +375,6 @@ fn main() {
     let outline_segments = segments(&board_outline);
 
     let midpoint = [15.0, 12.0];
-    let angle = Deg(90.0);
     let width = 5.0;
     let rotator = Basis2::from_angle(angle);
     let left = Vector2::from(midpoint) + rotator.rotate_vector(Vector2::new(width, 0.0));
@@ -384,7 +388,7 @@ fn main() {
         let (left, mid, right) = left_mid_right_rays(left.into(), right.into());
         let mut points = extension_points(mid, left, right, &outline);
         points.sort_by(|p1, p2| (p1 - mid.x0).dot(mid.direction.normalize()).partial_cmp(&(p2 - mid.x0).dot(mid.direction.normalize())).unwrap());
-        for &p in points.iter() {
+        'p: for &p in points.iter() {
             let segment_point = p - mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()));
             let translation = mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()) + 0.1);
             let extended = Segment { x0: left.x0 + translation, x: right.x0 - left.x0 };
@@ -396,21 +400,32 @@ fn main() {
             objects.push(left_extended.object("pink"));
             objects.push(right_extended.object("pink"));
             objects.push(bottom.object("pink"));
-            let mut intersect_count = 0;
+            let mut intersect_count = (0, 0);
             for &segment in outline {
-                for &bend_area_segment in &[extended, left_extended, right_extended, bottom] {
-                    match segment_segment_intersection(segment, bend_area_segment) {
-                        Intersection::None => {}
-                        _ => {
-                            intersect_count += 1;
-                            break
-                        }
+                match segment_segment_intersection(segment, left_extended) {
+                    Intersection::None => {}
+                    _ => {
+                        intersect_count.0 += 1;
                     }
                 }
+                match segment_segment_intersection(segment, right_extended) {
+                    Intersection::None => {}
+                    _ => {
+                        intersect_count.1 += 1;
+                    }
+                }
+                match segment_segment_intersection(segment, extended) {
+                    Intersection::None => {}
+                    _ => continue 'p,
+                }
+                // also check if extended is still inside the polygon?
             }
-            if intersect_count % 2 == 1 {
-                return Some(extended)
+            println!("intersect count: {:?}", intersect_count);
+            if intersect_count.0 % 2 == 0 || intersect_count.1 % 2 == 0 {
+                continue
             }
+            // return closest segment extension that satisfies conditions above
+            return Some(extended)
         }
         None
     }
