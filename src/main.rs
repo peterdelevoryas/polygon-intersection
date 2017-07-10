@@ -7,8 +7,10 @@ use render1::Segment;
 use cgmath::Matrix4;
 use cgmath::SquareMatrix;
 use cgmath::Vector2;
+use cgmath::Point2;
 use cgmath::Vector3;
 use cgmath::InnerSpace;
+use cgmath::EuclideanSpace;
 
 #[derive(Debug, Copy, Clone)]
 struct Ray {
@@ -191,6 +193,49 @@ fn ray_segment_intersection(ray: Ray, segment: Segment) -> Intersection {
     }
 }
 
+fn segment_segment_intersection(a: Segment, b: Segment) -> Intersection {
+    let a0 = a.x0;
+    let a = a.x;
+    let b0 = b.x0;
+    let b = b.x;
+    let t_a = (b0 - a0).cross(b) / a.cross(b);
+    let t_b = (b0 - a0).cross(a) / a.cross(b);
+    let zero_to_one = Interval {
+        left: Endpoint::inclusive(0.0),
+        right: Endpoint::inclusive(1.0)
+    };
+
+    if a.cross(b) == 0.0 && (b0 - a0).cross(a) == 0.0 {
+        let t0 = (b0 - a0).dot(a) / a.dot(a);
+        let t1 = t0 + b.dot(a) / a.dot(a);
+        let (t0, t1) = if a.dot(b) > 0.0 { (t0, t1) } else { (t1, t0) };
+        let t0_to_t1 = Interval {
+            left: Endpoint::inclusive(t0),
+            right: Endpoint::inclusive(t1),
+        };
+        match t0_to_t1.intersection(zero_to_one) {
+            IntervalIntersection::None => Intersection::None,
+            IntervalIntersection::Point(p) => {
+                Intersection::Point(a0 + a * p)
+            }
+            IntervalIntersection::Interval(i) => {
+                let p0 = a0 + a * i.left.value;
+                let p1 = a0 + a * i.right.value;
+                Intersection::Segment(Segment {
+                    x0: p0,
+                    x: p1 - p0,
+                })
+            }
+        }
+    } else if a.cross(b) == 0.0 && (b0 - a0).cross(a) != 0.0 {
+        Intersection::None
+    } else if a.cross(b) != 0.0 && t_a >= 0.0  && t_a <= 1.0 && t_b >= 0.0 && t_b <= 1.0 {
+        Intersection::Point(a0 + a * t_a)
+    } else {
+        Intersection::None
+    }
+}
+
 fn segments(vertices: &[[f32; 2]]) -> Vec<Segment> {
     let mut buf = Vec::new();
     for i in 0..vertices.len() - 1 {
@@ -218,6 +263,47 @@ fn between_rays(left: Ray, right: Ray, point: Vector2<f32>) -> bool {
     side1 != side2 && point.dot(left.direction) > 0.0
 }
 
+fn vector2_projection(v: Vector2<f32>, onto: Vector2<f32>) -> Vector2<f32> {
+    onto.normalize_to(v.dot(onto))
+}
+
+fn extension_points(midline: Ray, left: Ray, right: Ray, segments: &[Segment]) -> Vec<Vector2<f32>> {
+    debug_assert!(left.direction.normalize() == right.direction.normalize() && (left.x0 - right.x0).dot(left.direction) == 0.0);
+    let mut points = Vec::new();
+    for &segment in segments {
+        let mut intersection = false;
+        for &ray in &[left, right] {
+            match ray_segment_intersection(ray, segment) {
+                Intersection::None => continue,
+                Intersection::Point(p) => {
+                    points.push(p);
+                }
+                Intersection::Segment(s) => {
+                    points.push(s.x0);
+                    points.push(s.x0 + s.x);
+                }
+            }
+            intersection = true;
+        }
+        for &p in &[segment.x0, segment.x0 + segment.x] {
+            if between_rays(left, right, p) {
+                points.push(p);
+            }
+        }
+    }
+    points
+}
+
+// returns [left, mid, right]
+fn left_mid_right_rays(left: Vector2<f32>, right: Vector2<f32>) -> (Ray, Ray, Ray) {
+    let direction = right - left;
+    let normal = Vector2::new(-direction.y, direction.x);
+    let mid = Ray { x0: Point2::from_vec(left).midpoint(Point2::from_vec(right)).to_vec(), direction: normal };
+    let left = Ray { x0: left, direction: normal };
+    let right = Ray { x0: right, direction: normal };
+    (left, mid, right)
+}
+
 macro_rules! points {
     (values { $($name:ident = $value:expr);+; } points [$($x:ident $y:ident);+]) => ({
             $(let $name: f32 = $value;)+
@@ -226,6 +312,8 @@ macro_rules! points {
 }
 
 fn main() {
+    let mut objects = vec![];
+
     let board_outline = points! {
         values {
             x1 = 60.969119;
@@ -272,53 +360,60 @@ fn main() {
                 x13 y13]
     };
 
+
     //let aabb_segments = render1::AABB::from(&board_outline).segments();
     let outline_segments = segments(&board_outline);
 
-    let top_segment = Object::segment(vec![[5.0, 5.0], [10.0, 7.5]], "green");
-    let (rays, intersections) = {
-        let left = Vector2::new(5.0, 5.0);
-        let right = Vector2::new(10.0, 7.5);
-        let direction = right - left;
-        let normal = Vector2::new(-direction.y, direction.x);
-        let left_normal_ray = Ray {
-            x0: left,
-            direction: normal,
-        };
-        let right_normal_ray = Ray {
-            x0: right,
-            direction: normal,
-        };
-        let rays = vec![left_normal_ray, right_normal_ray];
-        let intersections: Vec<Intersection> = rays.iter().fold(Vec::new(), |mut buf, ray| {
-            for segment in &outline_segments {
-                match ray_segment_intersection(*ray, *segment) {
-                    Intersection::None => continue,
-                    intersection => {
-                        println!("ray {:?} intersection with segment {:?} = {:?}", ray, segment, intersection);
-                        buf.push(intersection);
-                    }
-                }
-            }
-            buf
-        });
-        (rays, intersections)
-    };
-
-    let mut dots = vec![];
-    for &point in &board_outline {
-        if between_rays(rays[0], rays[1], point.into()) {
-            dots.push(Object::point(point.into(), "pink"));
+    let left = [5.0, 5.0];
+    let right = [10.0, 7.5];
+    let top_segment = Object::segment(vec![left, right], "green");
+    objects.push(top_segment);
+    let (left, mid, right) = left_mid_right_rays(left.into(), right.into());
+    let mut points = extension_points(mid, left, right, &outline_segments);
+    let mut extra = Vec::new();
+    points.sort_by(|p1, p2| (p1 - mid.x0).dot(mid.direction.normalize()).partial_cmp(&(p2 - mid.x0).dot(mid.direction.normalize())).unwrap());
+    let mut extended_segment = None;
+    for &p in points.iter().rev() {
+        let segment_point = p - mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()));
+        extra.push(Object::segment(vec![segment_point.into(), p.into()], "pink"));
+        let normal_segment = Segment { x0: segment_point, x: p - segment_point };
+        let mut intersect_point = None;
+        for &segment in &outline_segments {
+            let p = match segment_segment_intersection(normal_segment, segment) {
+                Intersection::Segment(s) if s.x0 == p => p,
+                Intersection::Segment(s) if (s.x0 + s.x) == p => p,
+                Intersection::Point(p) => p,
+                _ => continue
+            };
+            intersect_point = match intersect_point {
+                None => Some(p),
+                Some(_) => break,
+            };
+        }
+        if let Some(p) = intersect_point {
+            println!("{:?} is blue", p);
+            //extra.push(Object::point(p.into(), "blue"));
+            let translation = mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()) * 1.0001);
+            extended_segment = Some(Segment { x0: left.x0 + translation, x: right.x0 - left.x0 });
+            break;
+        } else {
+            println!("{:?} is red", p);
+            extra.push(Object::point(p.into(), "red"));
         }
     }
+    let points: Vec<Object<_>> = points.into_iter().map(|p| {
+        Object::point(p.into(), "pink")
+    }).collect();
 
     //let aabb_segments: Vec<Object<_>> = aabb_segments.into_iter().map(|segment| segment.object("black")).collect();
-    let rays = rays.into_iter().map(|r| r.object("green")).collect::<Vec<Object<_>>>();
-    let intersections = intersections.into_iter().map(|i| i.object("pink").unwrap()).collect::<Vec<Object<_>>>();
-    let mut objects = vec![Object::outline(board_outline, "white"), top_segment];
+    let rays = vec![left, right].into_iter().map(|r| r.object("green")).collect::<Vec<Object<_>>>();
+    //let intersections = intersections.into_iter().map(|i| i.object("pink").unwrap()).collect::<Vec<Object<_>>>();
+    objects.push(Object::outline(board_outline, "white"));
     objects.extend(rays);
-    objects.extend(intersections);
-    objects.extend(dots);
+    objects.extend(points);
+    objects.extend(extra);
+    let extended_segment = extended_segment.unwrap();
+    objects.push(Object::segment(vec![extended_segment.x0.into(), (extended_segment.x0 + extended_segment.x).into()], "blue"));
 
-    render1::render1(objects.as_ref());
+    render1::render1(&objects);
 }
