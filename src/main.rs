@@ -11,6 +11,10 @@ use cgmath::Point2;
 use cgmath::Vector3;
 use cgmath::InnerSpace;
 use cgmath::EuclideanSpace;
+use cgmath::Deg;
+use cgmath::Basis2;
+use cgmath::Rotation2;
+use cgmath::Rotation;
 
 #[derive(Debug, Copy, Clone)]
 struct Ray {
@@ -359,61 +363,60 @@ fn main() {
                 x7 y7; x8 y8; x9 y9; x10 y10; x11 y11; x12 y12;
                 x13 y13]
     };
+    objects.push(Object::outline(board_outline.clone(), "white"));
 
 
     //let aabb_segments = render1::AABB::from(&board_outline).segments();
     let outline_segments = segments(&board_outline);
 
-    let left = [5.0, 5.0];
-    let right = [10.0, 7.5];
-    let top_segment = Object::segment(vec![left, right], "green");
-    objects.push(top_segment);
-    let (left, mid, right) = left_mid_right_rays(left.into(), right.into());
-    let mut points = extension_points(mid, left, right, &outline_segments);
-    let mut extra = Vec::new();
-    points.sort_by(|p1, p2| (p1 - mid.x0).dot(mid.direction.normalize()).partial_cmp(&(p2 - mid.x0).dot(mid.direction.normalize())).unwrap());
-    let mut extended_segment = None;
-    for &p in points.iter().rev() {
-        let segment_point = p - mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()));
-        extra.push(Object::segment(vec![segment_point.into(), p.into()], "pink"));
-        let normal_segment = Segment { x0: segment_point, x: p - segment_point };
-        let mut intersect_point = None;
-        for &segment in &outline_segments {
-            let p = match segment_segment_intersection(normal_segment, segment) {
-                Intersection::Segment(s) if s.x0 == p => p,
-                Intersection::Segment(s) if (s.x0 + s.x) == p => p,
-                Intersection::Point(p) => p,
-                _ => continue
-            };
-            intersect_point = match intersect_point {
-                None => Some(p),
-                Some(_) => break,
-            };
-        }
-        if let Some(p) = intersect_point {
-            println!("{:?} is blue", p);
-            //extra.push(Object::point(p.into(), "blue"));
-            let translation = mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()) * 1.0001);
-            extended_segment = Some(Segment { x0: left.x0 + translation, x: right.x0 - left.x0 });
-            break;
-        } else {
-            println!("{:?} is red", p);
-            extra.push(Object::point(p.into(), "red"));
-        }
-    }
-    let points: Vec<Object<_>> = points.into_iter().map(|p| {
-        Object::point(p.into(), "pink")
-    }).collect();
+    let midpoint = [15.0, 12.0];
+    let angle = Deg(90.0);
+    let width = 5.0;
+    let rotator = Basis2::from_angle(angle);
+    let left = Vector2::from(midpoint) + rotator.rotate_vector(Vector2::new(width, 0.0));
+    let right = Vector2::from(midpoint) + rotator.rotate_vector(Vector2::new(-width, 0.0));
+    let segment = Segment { x0: left.into(), x: Vector2::from(right) - Vector2::from(left) };
+    objects.push(segment.object("green"));
+    objects.push(Object::point(left.into(), "blue"));
+    objects.push(Object::point(right.into(), "red"));
 
-    //let aabb_segments: Vec<Object<_>> = aabb_segments.into_iter().map(|segment| segment.object("black")).collect();
-    let rays = vec![left, right].into_iter().map(|r| r.object("green")).collect::<Vec<Object<_>>>();
-    //let intersections = intersections.into_iter().map(|i| i.object("pink").unwrap()).collect::<Vec<Object<_>>>();
-    objects.push(Object::outline(board_outline, "white"));
-    objects.extend(rays);
-    objects.extend(points);
-    objects.extend(extra);
-    let extended_segment = extended_segment.unwrap();
-    objects.push(Object::segment(vec![extended_segment.x0.into(), (extended_segment.x0 + extended_segment.x).into()], "blue"));
+    fn extended_segment(left: Vector2<f32>, right: Vector2<f32>, outline: &[Segment], objects: &mut Vec<Object<Vec<[f32; 2]>>>) -> Option<Segment> {
+        let (left, mid, right) = left_mid_right_rays(left.into(), right.into());
+        let mut points = extension_points(mid, left, right, &outline);
+        points.sort_by(|p1, p2| (p1 - mid.x0).dot(mid.direction.normalize()).partial_cmp(&(p2 - mid.x0).dot(mid.direction.normalize())).unwrap());
+        for &p in points.iter() {
+            let segment_point = p - mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()));
+            let translation = mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()) + 0.1);
+            let extended = Segment { x0: left.x0 + translation, x: right.x0 - left.x0 };
+            let left_extended = Segment { x0: left.x0, x: extended.x0 - left.x0 };
+            let right_extended = Segment { x0: right.x0, x: extended.x0 + extended.x - right.x0 };
+            let bottom = Segment { x0: left.x0, x: right.x0 - left.x0 };
+            let normal_segment = Segment { x0: segment_point, x: p - segment_point };
+            objects.push(extended.object("pink"));
+            objects.push(left_extended.object("pink"));
+            objects.push(right_extended.object("pink"));
+            objects.push(bottom.object("pink"));
+            let mut intersect_count = 0;
+            for &segment in outline {
+                for &bend_area_segment in &[extended, left_extended, right_extended, bottom] {
+                    match segment_segment_intersection(segment, bend_area_segment) {
+                        Intersection::None => {}
+                        _ => {
+                            intersect_count += 1;
+                            break
+                        }
+                    }
+                }
+            }
+            if intersect_count % 2 == 1 {
+                return Some(extended)
+            }
+        }
+        None
+    }
+
+    let extended_segment = extended_segment(left.into(), right.into(), &outline_segments, &mut objects).unwrap();
+    objects.push(extended_segment.object("blue"));
 
     render1::render1(&objects);
 }
