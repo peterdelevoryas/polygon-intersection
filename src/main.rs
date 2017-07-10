@@ -264,7 +264,7 @@ fn between_rays(left: Ray, right: Ray, point: Vector2<f32>) -> bool {
         let point = point - right.x0;
         point.cross(right.direction).signum()
     };
-    side1 != side2 && point.dot(left.direction) > 0.0
+    side1 != side2 && (point - left.x0).dot(left.direction) > 0.0
 }
 
 fn vector2_projection(v: Vector2<f32>, onto: Vector2<f32>) -> Vector2<f32> {
@@ -280,9 +280,12 @@ fn extension_points(midline: Ray, left: Ray, right: Ray, segments: &[Segment]) -
             match ray_segment_intersection(ray, segment) {
                 Intersection::None => continue,
                 Intersection::Point(p) => {
+                    println!("{:?} point", p);
                     points.push(p);
                 }
                 Intersection::Segment(s) => {
+                    println!("{:?} segment end point)", s.x0);
+                    println!("{:?} segment end point)", s.x0 + s.x);
                     points.push(s.x0);
                     points.push(s.x0 + s.x);
                 }
@@ -291,6 +294,7 @@ fn extension_points(midline: Ray, left: Ray, right: Ray, segments: &[Segment]) -
         }
         for &p in &[segment.x0, segment.x0 + segment.x] {
             if between_rays(left, right, p) {
+                println!("{:?} between rays", p);
                 points.push(p);
             }
         }
@@ -380,7 +384,6 @@ fn main() {
     let left = Vector2::from(midpoint) + rotator.rotate_vector(Vector2::new(width, 0.0));
     let right = Vector2::from(midpoint) + rotator.rotate_vector(Vector2::new(-width, 0.0));
     let segment = Segment { x0: left.into(), x: Vector2::from(right) - Vector2::from(left) };
-    objects.push(segment.object("green"));
     objects.push(Object::point(left.into(), "blue"));
     objects.push(Object::point(right.into(), "red"));
 
@@ -392,6 +395,8 @@ fn main() {
             let segment_point = p - mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()));
             let translation = mid.direction.normalize_to((p - mid.x0).dot(mid.direction.normalize()) + 0.1);
             let extended = Segment { x0: left.x0 + translation, x: right.x0 - left.x0 };
+            //println!("translation: {:?}", translation);
+            //println!("extended: {:?}", extended);
             let left_extended = Segment { x0: left.x0, x: extended.x0 - left.x0 };
             let right_extended = Segment { x0: right.x0, x: extended.x0 + extended.x - right.x0 };
             let bottom = Segment { x0: left.x0, x: right.x0 - left.x0 };
@@ -432,6 +437,7 @@ fn main() {
 
     let extended_segment = extended_segment(left.into(), right.into(), &outline_segments, &mut objects).unwrap();
     objects.push(extended_segment.object("blue"));
+    objects.push(segment.object("green"));
 
     render1::render1(&objects);
 }

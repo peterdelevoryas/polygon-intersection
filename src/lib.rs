@@ -169,7 +169,7 @@ impl Camera {
         let moving = match code {
             W => &mut self.moving.forward,
             A => &mut self.moving.left,
-            S => &mut self.moving.downward,
+            S => &mut self.moving.backward,
             D => &mut self.moving.right,
             C if state == Pressed => {
                 println!("look_around: {}", if self.look_around_on { "on" } else { "off" });
