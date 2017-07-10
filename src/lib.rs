@@ -92,7 +92,7 @@ impl Segment {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Camera {
     position: Vector3<f32>,
     forward: Vector3<f32>,
@@ -105,7 +105,7 @@ pub struct Camera {
     look_around_on: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Moving {
     forward: bool,
     backward: bool,
@@ -442,154 +442,172 @@ impl VertexBuffer {
     }
 }
 
-/*
-#[no_mangle]
-pub extern fn render1<'a>(ptr: *const RawObject, len: usize) {
-    let raw_objects = unsafe {
-        std::slice::from_raw_parts(ptr, len)
-    };
-    println!("{:?}", raw_objects);
-    let objects = raw_objects.iter().map(|raw| {
-        Object::from_raw(raw)
-    }).collect::<Vec<Object<'a>>>();
-    println!("{:?}", objects);
-*/
-//pub fn render1<T: Clone + Borrow<[[f32; 2]]>>(objects: &[Object<T>]) {
-pub fn render1(objects: &[Object<Vec<[f32; 2]>>]) {
-    let width = 1024;
-    let height = 768;
+pub struct Render1 {
+    width: u32,
+    height: u32,
+    events_loop: glutin::EventsLoop,
+    window: glutin::Window,
+    vao: gl::types::GLuint,
+    vbo: gl::types::GLuint,
+    program: gl::types::GLuint,
+    vs: gl::types::GLuint,
+    fs: gl::types::GLuint,
+    transform_location: gl::types::GLint,
+    color_location: gl::types::GLint,
+    proj: Matrix4<f32>,
+    camera: Option<Camera>,
+}
 
-    let events_loop = glutin::EventsLoop::new();
-    let window = glutin::WindowBuilder::new()
-        .with_title("render1")
-        .with_dimensions(width, height)
-        .with_vsync()
-        .build(&events_loop)
-        .unwrap();
+impl Render1 {
+    pub fn init(width: u32, height: u32) -> Render1 {
+        let events_loop = glutin::EventsLoop::new();
+        let window = glutin::WindowBuilder::new()
+            .with_title("render1")
+            .with_dimensions(width, height)
+            .with_vsync()
+            .build(&events_loop)
+            .unwrap();
 
-    window.set_cursor_state(glutin::CursorState::Hide);
-
-    unsafe {
-        window.make_current().unwrap();
-        gl::load_with(|s| window.get_proc_address(s) as *const _);
-    }
-
-    let vs = compile_shader(include_str!("vertex.glsl"), gl::VERTEX_SHADER).unwrap();
-    let fs = compile_shader(include_str!("fragment.glsl"), gl::FRAGMENT_SHADER).unwrap();
-    let program = link_program(&[vs, fs]).unwrap();
-
-    let aabb = objects.iter().fold(None, |aabb, obj| {
-        aabb.map(|aabb| {
-            Some(aabb | AABB::from(&obj.vertices))
-        }).unwrap_or(Some(AABB::from(&obj.vertices)))
-    }).unwrap();
-
-    let aabb = {
-        let mut aabb = aabb;
-        aabb.min -= [0.1, 0.1].into();
-        aabb.max += [0.1, 0.1].into();
-        aabb
-    };
-
-    use cgmath::Point3;
-    let center: Point3<f32> = [aabb.min.x + (aabb.max.x - aabb.min.x) / 2.0, aabb.min.y + (aabb.max.y - aabb.min.y) / 2.0, 0.0].into();
-    let eye_z = 0.5 * (aabb.max.x - aabb.min.x) / f32::to_radians(45.0 * 0.5).tan() / (width as f32 / height as f32);
-    //println!("{:?}", eye_z);
-    let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
-    let mut camera = Camera::new((center + Vector3::new(0.0, 0.0, eye_z)).to_vec(), center.to_vec(), [0.0, 1.0, 0.0].into());
-
-    let mut objects = objects.to_vec();
-    //objects.push(aabb.object("red"));
-    let objects = &objects;
-
-    let (targets, vao, vbo) = unsafe {
-        let mut vao = 0;
-        let mut vbo = 0;
-        gl::GenVertexArrays(1, &mut vao);
-        gl::BindVertexArray(vao);
-
-        gl::GenBuffers(1, &mut vbo);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-
-        let mut vertex_buffer = VertexBuffer::new(vbo);
-        let targets = vertex_buffer.create_targets(&objects);
-
-        let position = gl::GetAttribLocation(program, std::ffi::CString::new("position").unwrap().as_ptr());
-        gl::EnableVertexAttribArray(position as _);
-        gl::VertexAttribPointer(position as _, 2, gl::FLOAT, gl::FALSE as _, 0, std::ptr::null());
-
-        gl::UseProgram(program);
-        gl::BindFragDataLocation(program, 0, std::ffi::CString::new("out_color").unwrap().as_ptr());
-
-        (targets, vao, vbo)
-    };
-
-    let transform_location = unsafe {
-        gl::GetUniformLocation(program, std::ffi::CString::new("transform").unwrap().as_ptr())
-    };
-
-    let color_location = unsafe {
-        gl::GetUniformLocation(program, std::ffi::CString::new("color").unwrap().as_ptr())
-    };
-
-    for target in &targets {
-        //println!("{:?}", target.model);
-        //println!("DrawArrays({}, offset={}, count={})", target.primitive, target.buffer_offset as i32, target.vertex_count as i32);
-    }
-
-    use glutin::Event::WindowEvent;
-    use glutin::WindowEvent::Closed;
-    use glutin::WindowEvent::KeyboardInput;
-    use glutin::WindowEvent::MouseMoved;
-    use glutin::WindowEvent::MouseLeft;
-    use glutin::VirtualKeyCode::Escape;
-
-    let mut running = true;
-    while running {
-        events_loop.poll_events(|event| {
-            let WindowEvent { event, ..} = event;
-            match event {
-                Closed => running = false,
-                KeyboardInput(_, _, Some(Escape), _) => {
-                    running = false;
-                }
-                KeyboardInput(key_state, _, Some(key_code), modifiers) => {
-                    camera.handle_keyboard_input(key_state, key_code, modifiers);
-                }
-                MouseMoved(x, y) => {
-                    camera.handle_mouse_moved(Vector2 { x: x as _, y: y as _ });
-                }
-                MouseLeft => {
-                    camera.last_mouse_position = None;
-                }
-                _ => {}
-            }
-        });
-
-        camera.move1();
+        window.set_cursor_state(glutin::CursorState::Hide);
 
         unsafe {
-            gl::ClearColor(0.3, 0.3, 0.3, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
+            window.make_current().unwrap();
+            gl::load_with(|s| window.get_proc_address(s) as *const _);
+        }
 
-            for target in &targets {
-                let transform = proj * camera.view() * target.model;
-                gl::UniformMatrix4fv(transform_location, 1, gl::FALSE as _, transform.as_ptr());
-                gl::Uniform4fv(color_location, 1, target.color.as_ptr());
-                gl::DrawArrays(target.primitive, target.buffer_offset as _, target.vertex_count as _);
-            }
+        let vs = compile_shader(include_str!("vertex.glsl"), gl::VERTEX_SHADER).unwrap();
+        let fs = compile_shader(include_str!("fragment.glsl"), gl::FRAGMENT_SHADER).unwrap();
+        let program = link_program(&[vs, fs]).unwrap();
 
-            window.swap_buffers().unwrap();
+        let (vao, vbo, transform_location, color_location) = unsafe {
+            gl::UseProgram(program);
+            gl::BindFragDataLocation(program, 0, std::ffi::CString::new("out_color").unwrap().as_ptr());
+            let mut vao = 0;
+            let mut vbo = 0;
+            gl::GenVertexArrays(1, &mut vao);
+            gl::BindVertexArray(vao);
+            gl::GenBuffers(1, &mut vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+            let position = gl::GetAttribLocation(program, std::ffi::CString::new("position").unwrap().as_ptr());
+            gl::EnableVertexAttribArray(position as _);
+            gl::VertexAttribPointer(position as _, 2, gl::FLOAT, gl::FALSE as _, 0, std::ptr::null());
+            let transform_location = gl::GetUniformLocation(program, std::ffi::CString::new("transform").unwrap().as_ptr());
+            let color_location = gl::GetUniformLocation(program, std::ffi::CString::new("color").unwrap().as_ptr());
+            (vao, vbo, transform_location, color_location)
+        };
+
+        let proj = cgmath::perspective(cgmath::Deg(45.0), width as f32 / height as f32, 0.1, 100.0);
+        let camera = None;
+
+        Render1 {
+            width,
+            height,
+            events_loop,
+            window,
+            vao,
+            vbo,
+            program,
+            vs,
+            fs,
+            transform_location,
+            color_location,
+            proj,
+            camera,
         }
     }
 
-    unsafe {
-        gl::DeleteProgram(program);
-        gl::DeleteShader(vs);
-        gl::DeleteShader(fs);
-        gl::DeleteBuffers(1, &vbo);
-        gl::DeleteVertexArrays(1, &vao);
-    }
+    pub fn render_loop(&mut self, objects: &[Object<Vec<[f32; 2]>>]) -> bool {
+        let aabb = objects.iter().fold(None, |aabb, obj| {
+            aabb.map(|aabb| {
+                Some(aabb | AABB::from(&obj.vertices))
+            }).unwrap_or(Some(AABB::from(&obj.vertices)))
+        }).unwrap();
 
-    println!("window closed");
+        let aabb = {
+            let mut aabb = aabb;
+            aabb.min -= [0.1, 0.1].into();
+            aabb.max += [0.1, 0.1].into();
+            aabb
+        };
+
+        let center: Point3<f32> = [aabb.min.x + (aabb.max.x - aabb.min.x) / 2.0, aabb.min.y + (aabb.max.y - aabb.min.y) / 2.0, 0.0].into();
+        let eye_z = 0.5 * (aabb.max.x - aabb.min.x) / f32::to_radians(45.0 * 0.5).tan() / (self.width as f32 / self.height as f32);
+        let mut camera = self.camera.take().unwrap_or(Camera::new((center + Vector3::new(0.0, 0.0, eye_z)).to_vec(), center.to_vec(), [0.0, 1.0, 0.0].into()));
+
+        let mut objects = objects.to_vec();
+        //objects.push(aabb.object("red"));
+        let objects = &objects;
+
+        let mut vertex_buffer = VertexBuffer::new(self.vbo);
+        let targets = vertex_buffer.create_targets(&objects);
+
+        use glutin::Event::WindowEvent;
+        use glutin::WindowEvent::Closed;
+        use glutin::WindowEvent::KeyboardInput;
+        use glutin::WindowEvent::MouseMoved;
+        use glutin::WindowEvent::MouseLeft;
+        use glutin::VirtualKeyCode::Escape;
+        use glutin::VirtualKeyCode::Space;
+        use glutin::ElementState::Pressed;
+
+        let mut running = true;
+        let mut refresh = false;
+        while running {
+            self.events_loop.poll_events(|event| {
+                let WindowEvent { event, ..} = event;
+                match event {
+                    Closed => running = false,
+                    KeyboardInput(Pressed, _, Some(Escape), _) => {
+                        running = false;
+                    }
+                    KeyboardInput(Pressed, _, Some(Space), _) => {
+                        refresh = true;
+                        running = false;
+                    }
+                    KeyboardInput(key_state, _, Some(key_code), modifiers) => {
+                        camera.handle_keyboard_input(key_state, key_code, modifiers);
+                    }
+                    MouseMoved(x, y) => {
+                        camera.handle_mouse_moved(Vector2 { x: x as _, y: y as _ });
+                    }
+                    MouseLeft => {
+                        camera.last_mouse_position = None;
+                    }
+                    _ => {}
+                }
+            });
+
+            camera.move1();
+
+            unsafe {
+                gl::ClearColor(0.3, 0.3, 0.3, 1.0);
+                gl::Clear(gl::COLOR_BUFFER_BIT);
+
+                for target in &targets {
+                    let transform = self.proj * camera.view() * target.model;
+                    gl::UniformMatrix4fv(self.transform_location, 1, gl::FALSE as _, transform.as_ptr());
+                    gl::Uniform4fv(self.color_location, 1, target.color.as_ptr());
+                    gl::DrawArrays(target.primitive, target.buffer_offset as _, target.vertex_count as _);
+                }
+
+                self.window.swap_buffers().unwrap();
+            }
+        }
+
+        self.camera = Some(camera);
+        println!("window closed");
+        refresh
+    }
+}
+
+impl Drop for Render1 {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteProgram(self.program);
+            gl::DeleteShader(self.vs);
+            gl::DeleteShader(self.fs);
+            gl::DeleteBuffers(1, &self.vbo);
+            gl::DeleteVertexArrays(1, &self.vao);
+        }
+    }
 }

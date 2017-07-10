@@ -321,10 +321,7 @@ macro_rules! points {
 
 use std::env;
 
-fn main() {
-    let angle: f32 = env::args().nth(1).unwrap().parse().unwrap();
-    let angle = Deg(angle);
-
+fn scene(angle: Deg<f32>) -> Vec<Object<Vec<[f32; 2]>>> {
     let mut objects = vec![];
 
     let board_outline = points! {
@@ -439,5 +436,18 @@ fn main() {
     objects.push(extended_segment.object("blue"));
     objects.push(segment.object("green"));
 
-    render1::render1(&objects);
+    objects
+}
+
+fn main() {
+    let mut render1 = render1::Render1::init(1028, 768);
+
+    let mut angle = Deg(0.0);
+    loop {
+        let objects = scene(angle);
+        if !render1.render_loop(&objects) {
+            break
+        }
+        angle += Deg(0.1);
+    }
 }
